@@ -8,4 +8,7 @@
 ![](chatbot_v1/chatbot_v1_loss.png)
 
 4、`python demo.py predict`进行预测，对话效果如下：  
-![](chatbot_v1/chatbot_v1_predict.png)
+![](chatbot_v1/chatbot_v1_predict.png)  
+
+## v2：用官方推荐的`tf.contrib.seq2seq`中的一系列API重新实现  
+2019.3.17  实现基本的双层seq2seq模型
