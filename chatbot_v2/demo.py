@@ -22,7 +22,7 @@ EMBEDDING_SIZE = 128  # embedding维度
 NUM_UNITS = 128  # lstm隐藏层单元数
 NUM_LAYERS = 2  # 隐藏层（lstm）层数
 
-BATCH_SIZE = 128  # batch大小
+BATCH_SIZE = 100  # batch大小
 MAX_GRADIENT = 5  # 用于梯度修剪
 LEARNING_RATE = 0.0003  # 学习率
 LEARNING_DECAY_STEPS = 100  # 每隔多少步学习率下降
@@ -102,15 +102,18 @@ def model(encoder_inputs, encoder_lengths, vocab_size, decoder_inputs=None, deco
     encoder_cell = [tf.nn.rnn_cell.LSTMCell(n) for n in [NUM_UNITS]*NUM_LAYERS]
     encoder_cell = tf.nn.rnn_cell.MultiRNNCell(encoder_cell)
     encoder_outputs, encoder_state = tf.nn.dynamic_rnn(encoder_cell, encoder_emb_inp, sequence_length=encoder_lengths, dtype=tf.float32)
-
+        
     # decoder
+    attention_mechanism = tf.contrib.seq2seq.LuongAttention(NUM_UNITS, encoder_outputs, memory_sequence_length=encoder_lengths)
     decoder_cell = [tf.nn.rnn_cell.LSTMCell(n) for n in [NUM_UNITS]*NUM_LAYERS]
     decoder_cell = tf.nn.rnn_cell.MultiRNNCell(decoder_cell)
+    decoder_cell = tf.contrib.seq2seq.AttentionWrapper(decoder_cell, attention_mechanism, attention_layer_size=NUM_UNITS)
+    decoder_initial_state = decoder_cell.zero_state(BATCH_SIZE, dtype=tf.float32).clone(cell_state=encoder_state)
     if mode=='train':
         helper = tf.contrib.seq2seq.TrainingHelper(decoder_emb_inp, decoder_lengths)
     else:
         helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(embedding, tf.fill([1], GO_ID), EOS_ID)
-    decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell, helper, encoder_state, output_layer=tf.layers.Dense(vocab_size, use_bias=False))
+    decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell, helper, decoder_initial_state, output_layer=tf.layers.Dense(vocab_size, use_bias=False))
     outputs, final_state, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(decoder, maximum_iterations = tf.reduce_max(decoder_lengths) if mode=='train' else 2*tf.reduce_max(encoder_lengths))
     if mode=='train':
         logits = outputs.rnn_output

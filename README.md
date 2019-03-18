@@ -12,3 +12,4 @@
 
 ## v2：用官方推荐的`tf.contrib.seq2seq`中的一系列API重新实现  
 2019.3.17  实现基本的双层seq2seq模型
+2019.3.18  加入attention机制
