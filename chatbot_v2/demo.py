@@ -21,6 +21,7 @@ MIN_FREQUENCY = 10  # 词频大于等于该数的词才会有单独ID，其它�
 EMBEDDING_SIZE = 128  # embedding维度
 NUM_UNITS = 128  # lstm隐藏层单元数
 NUM_LAYERS = 2  # 隐藏层（lstm）层数
+BEAM_WIDTH = 2  # beam搜索的宽度
 
 BATCH_SIZE = 100  # batch大小
 MAX_GRADIENT = 5  # 用于梯度修剪
@@ -112,23 +113,39 @@ def model(encoder_inputs, encoder_lengths, vocab_size, decoder_inputs=None, deco
         encoder_state.append(bi_encoder_state[1][i])  
     encoder_state = tuple(encoder_state)
     encoder_state = encoder_state[-NUM_LAYERS:]
-        
+    
     # decoder
-    attention_mechanism = tf.contrib.seq2seq.LuongAttention(NUM_UNITS, encoder_outputs, memory_sequence_length=encoder_lengths)
-    decoder_cell = [tf.nn.rnn_cell.LSTMCell(n) for n in [NUM_UNITS]*NUM_LAYERS]
-    decoder_cell = tf.nn.rnn_cell.MultiRNNCell(decoder_cell)
-    decoder_cell = tf.contrib.seq2seq.AttentionWrapper(decoder_cell, attention_mechanism, attention_layer_size=NUM_UNITS)
-    decoder_initial_state = decoder_cell.zero_state(BATCH_SIZE, dtype=tf.float32).clone(cell_state=encoder_state)
     if mode=='train':
+        attention_mechanism = tf.contrib.seq2seq.LuongAttention(NUM_UNITS, encoder_outputs, memory_sequence_length=encoder_lengths)
+        decoder_cell = [tf.nn.rnn_cell.LSTMCell(n) for n in [NUM_UNITS]*NUM_LAYERS]
+        decoder_cell = tf.nn.rnn_cell.MultiRNNCell(decoder_cell)
+        decoder_cell = tf.contrib.seq2seq.AttentionWrapper(decoder_cell, attention_mechanism, attention_layer_size=NUM_UNITS)
+        decoder_initial_state = decoder_cell.zero_state(BATCH_SIZE, dtype=tf.float32).clone(cell_state=encoder_state)
         helper = tf.contrib.seq2seq.TrainingHelper(decoder_emb_inp, decoder_lengths)
+        decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell, helper, decoder_initial_state, output_layer=tf.layers.Dense(vocab_size, use_bias=False))
     else:
-        helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(embedding, tf.fill([1], GO_ID), EOS_ID)
-    decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell, helper, decoder_initial_state, output_layer=tf.layers.Dense(vocab_size, use_bias=False))
+        encoder_outputs = tf.contrib.seq2seq.tile_batch(encoder_outputs, multiplier=BEAM_WIDTH)
+        encoder_state = tf.contrib.seq2seq.tile_batch(encoder_state, multiplier=BEAM_WIDTH)
+        encoder_lengths = tf.contrib.seq2seq.tile_batch(self.encoder_lengths, multiplier=BEAM_WIDTH)
+        attention_mechanism = tf.contrib.seq2seq.LuongAttention(NUM_UNITS, encoder_outputs, memory_sequence_length=encoder_lengths)
+        decoder_cell = [tf.nn.rnn_cell.LSTMCell(n) for n in [NUM_UNITS]*NUM_LAYERS]
+        decoder_cell = tf.nn.rnn_cell.MultiRNNCell(decoder_cell)
+        decoder_cell = tf.contrib.seq2seq.AttentionWrapper(decoder_cell, attention_mechanism, attention_layer_size=NUM_UNITS)
+        decoder_initial_state = decoder_cell.zero_state(BATCH_SIZE*BEAM_WIDTH, dtype=tf.float32).clone(cell_state=encoder_state)
+        decoder = tf.contrib.seq2seq.BeamSearchDecoder(cell=decoder_cell,
+                                                       embedding=embedding,
+                                                       start_tokens=GO_ID,
+                                                       end_token=EOS_ID,
+                                                       initial_state=decoder_initial_state,
+                                                       beam_width=BEAM_WIDTH,
+                                                       output_layer=tf.layers.Dense(vocab_size, use_bias=False),
+                                                       length_penalty_weight=0.0,
+                                                       coverage_penalty_weight=0.0)
     outputs, final_state, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(decoder, maximum_iterations = tf.reduce_max(decoder_lengths) if mode=='train' else 2*tf.reduce_max(encoder_lengths))
     if mode=='train':
         logits = outputs.rnn_output
     else:
-        answers = outputs.sample_id
+        answers = outputs.predicted_ids[:,:,0]
     return logits if mode=='train' else answers
 
 
