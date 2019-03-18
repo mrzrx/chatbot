@@ -99,9 +99,19 @@ def model(encoder_inputs, encoder_lengths, vocab_size, decoder_inputs=None, deco
         decoder_emb_inp = tf.nn.embedding_lookup(embedding, decoder_inputs)
 
     # encoder
-    encoder_cell = [tf.nn.rnn_cell.LSTMCell(n) for n in [NUM_UNITS]*NUM_LAYERS]
-    encoder_cell = tf.nn.rnn_cell.MultiRNNCell(encoder_cell)
-    encoder_outputs, encoder_state = tf.nn.dynamic_rnn(encoder_cell, encoder_emb_inp, sequence_length=encoder_lengths, dtype=tf.float32)
+    forward_encoder_cell = [tf.nn.rnn_cell.LSTMCell(n) for n in [NUM_UNITS]*NUM_LAYERS]
+    forward_encoder_cell = tf.nn.rnn_cell.MultiRNNCell(forward_encoder_cell)
+    backward_encoder_cell = [tf.nn.rnn_cell.LSTMCell(n) for n in [NUM_UNITS]*NUM_LAYERS]
+    backward_encoder_cell = tf.nn.rnn_cell.MultiRNNCell(backward_encoder_cell)
+    bi_outputs, bi_encoder_state = tf.nn.bidirectional_dynamic_rnn(forward_encoder_cell, backward_encoder_cell, encoder_emb_inp, 
+                                                                    sequence_length=encoder_lengths, dtype=tf.float32)
+    encoder_outputs = tf.concat(bi_outputs, -1)
+    encoder_state = []
+    for i in range(NUM_LAYERS):
+        encoder_state.append(bi_encoder_state[0][i]) 
+        encoder_state.append(bi_encoder_state[1][i])  
+    encoder_state = tuple(encoder_state)
+    encoder_state = encoder_state[-NUM_LAYERS:]
         
     # decoder
     attention_mechanism = tf.contrib.seq2seq.LuongAttention(NUM_UNITS, encoder_outputs, memory_sequence_length=encoder_lengths)
